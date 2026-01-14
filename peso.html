@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Registro de Peso</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+body {
+  font-family: Arial, sans-serif;
+  background: #f4f6f8;
+  margin: 0;
+  padding: 20px;
+}
+.card {
+  background: white;
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  margin-bottom: 20px;
+}
+h1, h2 {
+  text-align: center;
+}
+input, button {
+  width: 100%;
+  padding: 12px;
+  font-size: 18px;
+  margin-top: 10px;
+  border-radius: 8px;
+}
+button {
+  border: none;
+  background: #007bff;
+  color: white;
+}
+.export {
+  background: #28a745;
+}
+.media, .trend {
+  font-size: 20px;
+  text-align: center;
+  font-weight: bold;
+}
+ul {
+  list-style: none;
+  padding: 0;
+}
+li {
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+  cursor: pointer;
+}
+li small {
+  color: #888;
+}
+canvas {
+  width: 100%;
+  height: 280px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+  <h1>📅 Registro de Peso</h1>
+  <input type="number" id="peso" step="0.1" placeholder="Introduce tu peso (kg)">
+  <button onclick="guardarPeso()">Guardar</button>
+  <button class="export" onclick="exportarCSV()">Exportar CSV</button>
+</div>
+
+<div class="card">
+  <h2>📊 Media últimos 10</h2>
+  <div class="media" id="media">-- kg</div>
+</div>
+
+<div class="card">
+  <h2>🧮 Tendencia semanal</h2>
+  <div class="trend" id="tendencia">--</div>
+</div>
+
+<div class="card">
+  <h2>📈 Evolución + media móvil</h2>
+  <canvas id="grafica" width="600" height="300"></canvas>
+</div>
+
+<div class="card">
+  <h2>📖 Historial (toca para editar)</h2>
+  <ul id="lista"></ul>
+</div>
+
+<script>
+let registros = JSON.parse(localStorage.getItem("pesos")) || [];
+
+function guardarPeso() {
+  const peso = document.getElementById("peso").value;
+  if (!peso) return;
+  const fecha = new Date().toISOString().split("T")[0];
+  registros.unshift({ fecha, peso: parseFloat(peso) });
+  localStorage.setItem("pesos", JSON.stringify(registros));
+  document.getElementById("peso").value = "";
+  actualizar();
+}
+
+function actualizar() {
+  actualizarLista();
+  actualizarMedia();
+  actualizarTendencia();
+  dibujarGrafica();
+}
+
+function actualizarLista() {
+  const ul = document.getElementById("lista");
+  ul.innerHTML = "";
+  registros.forEach((r,i)=>{
+    const li = document.createElement("li");
+    li.innerHTML = `${r.fecha} → ${r.peso} kg <small>(editar)</small>`;
+    li.onclick = ()=>editarPeso(i);
+    ul.appendChild(li);
+  });
+}
+
+function editarPeso(index) {
+  const nuevo = prompt(
+    `Editar peso (${registros[index].fecha})`,
+    registros[index].peso
+  );
+  if (nuevo === null) return;
+  const valor = parseFloat(nuevo);
+  if (isNaN(valor)) return;
+  registros[index].peso = valor;
+  localStorage.setItem("pesos", JSON.stringify(registros));
+  actualizar();
+}
+
+function actualizarMedia() {
+  const ultimos10 = registros.slice(0,10);
+  if (!ultimos10.length) {
+    media.textContent="-- kg"; return;
+  }
+  const m = ultimos10.reduce((s,r)=>s+r.peso,0)/ultimos10.length;
+  media.textContent = m.toFixed(1)+" kg";
+}
+
+function actualizarTendencia() {
+  const ultimos7 = registros.slice(0,7).reverse();
+  if (ultimos7.length < 2) {
+    tendencia.textContent="--"; return;
+  }
+  const delta = ultimos7[ultimos7.length-1].peso - ultimos7[0].peso;
+  const valor = delta.toFixed(2);
+  let icono = "➖";
+  if (delta > 0.1) icono="⬆️";
+  if (delta < -0.1) icono="⬇️";
+  tendencia.textContent = `${icono} ${valor} kg / semana`;
+}
+
+function mediaMovil(datos,n=10){
+  return datos.map((_,i)=>{
+    const s=datos.slice(Math.max(0,i-n+1),i+1);
+    return s.reduce((a,b)=>a+b,0)/s.length;
+  });
+}
+
+function dibujarGrafica() {
+  const c=document.getElementById("grafica");
+  const ctx=c.getContext("2d");
+  ctx.clearRect(0,0,c.width,c.height);
+  if (registros.length<2) return;
+
+  const datos=registros.slice().reverse().map(r=>r.peso);
+  const medias=mediaMovil(datos,10);
+
+  const min=Math.min(...datos,...medias)-1;
+  const max=Math.max(...datos,...medias)+1;
+  const p=40,w=c.width-p*2,h=c.height-p*2;
+
+  const x=i=>p+i*(w/(datos.length-1));
+  const y=v=>p+h-(v-min)/(max-min)*h;
+
+  ctx.strokeStyle="#007bff";
+  ctx.lineWidth=2;
+  ctx.beginPath();
+  datos.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));
+  ctx.stroke();
+
+  ctx.strokeStyle="#ff9800";
+  ctx.setLineDash([6,4]);
+  ctx.beginPath();
+  medias.forEach((v,i)=>i?ctx.lineTo(x(i),y(v)):ctx.moveTo(x(i),y(v)));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.strokeStyle="#ccc";
+  ctx.beginPath();
+  ctx.moveTo(p,p);
+  ctx.lineTo(p,c.height-p);
+  ctx.lineTo(c.width-p,c.height-p);
+  ctx.stroke();
+}
+
+function exportarCSV() {
+  if (!registros.length) return;
+  let csv="fecha,peso\n";
+  registros.slice().reverse().forEach(r=>csv+=`${r.fecha},${r.peso}\n`);
+  const blob=new Blob([csv],{type:"text/csv"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="registro_peso.csv";
+  a.click();
+}
+
+actualizar();
+</script>
+
+</body>
+</html>
